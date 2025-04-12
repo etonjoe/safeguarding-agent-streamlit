@@ -168,27 +168,59 @@ def get_faiss_index(embeddings):
           st.error(f"Error building FAISS index from embeddings: {e}")
           return None
 
+# utils.py - UPDATED retrieve_relevant_context function
+
 def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: list[str], k: int = TOP_K_RESULTS) -> str:
     """Retrieves the top-k relevant text chunks from the vector store."""
-    # Renamed embeddings_np argument to avoid conflict if passed directly, though it's not used here
     if index is None or embedding_model is None or text_chunks is None:
          st.warning("Vector store components not available for retrieval.")
-         return "Error: Could not retrieve context."
+         return "Error: Could not retrieve context - Vector store not initialized."
     try:
         print(f"[RT] Embedding query: '{query[:50]}...'")
-        query_embedding = embedding_model.encode([query])
+        # Generate embedding
+        query_embedding_list = embedding_model.encode([query])
+
+        # --- Start: Added Checks ---
+        if query_embedding_list is None or query_embedding_list.shape[0] == 0:
+             st.error("Failed to generate query embedding (returned None or empty).")
+             return "Error: Failed to generate query embedding."
+
+        query_embedding_np = np.array(query_embedding_list).astype('float32')
+
+        # Ensure it's 2D (sentence-transformers usually returns 2D, but defensive check)
+        if query_embedding_np.ndim != 2 or query_embedding_np.shape[0] != 1:
+             st.error(f"Query embedding has unexpected shape: {query_embedding_np.shape}")
+             return "Error: Query embedding shape issue."
+        # --- End: Added Checks ---
+
         print(f"[RT] Searching FAISS index for top {k} relevant chunks...")
-        distances, indices = index.search(np.array(query_embedding).astype('float32'), k)
+        # Use the validated NumPy array for search
+        distances, indices = index.search(query_embedding_np, k)
 
         # Filter out potential invalid indices (if k > number of documents)
+        # Ensure indices is not empty and contains at least one array of indices
+        if indices is None or len(indices) == 0 or len(indices[0]) == 0:
+             print("[RT] No relevant indices found.")
+             return "No specific policy context found for this query." # Return clearer message
+
         valid_indices = [i for i in indices[0] if 0 <= i < len(text_chunks)]
+        if not valid_indices:
+            print("[RT] No valid indices found after filtering.")
+            return "No specific policy context found matching the query criteria." # Return clearer message
+
         retrieved_chunks = [text_chunks[i] for i in valid_indices]
 
         print(f"[RT] Retrieved {len(retrieved_chunks)} chunks.")
         return "\n\n---\n\n".join(retrieved_chunks)
+
     except Exception as e:
-        st.error(f"Error during context retrieval: {e}")
-        return "Error: Failed to retrieve context from policy."
+        # Print the full traceback to the console/log for better debugging
+        import traceback
+        print("--- ERROR DURING CONTEXT RETRIEVAL ---")
+        traceback.print_exc()
+        print("--- END ERROR TRACEBACK ---")
+        st.error(f"Error during context retrieval: {e}") # Show concise error in UI
+        return f"Error: Failed to retrieve context from policy. Details: {e}" # Include error detail
 
 
 def generate_safeguarding_response(
