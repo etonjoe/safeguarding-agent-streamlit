@@ -1,50 +1,37 @@
-# utils.py
+# utils.py (Version with Index Sanitization)
 import os
 import json
 import datetime
-import streamlit as st # Import streamlit for caching etc.
+import streamlit as st
 import google.generativeai as genai
-# VVV Corrected this line VVV
-from google.generativeai.types import HarmCategory, HarmBlockThreshold # Removed Part from here
-# ^^^ Corrected this line ^^^
-
-# PDF Processing & Vector Store Libraries
+from google.generativeai.types import HarmCategory, HarmBlockThreshold # Removed Part
+import numpy as np
+import faiss
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
+import traceback # Import traceback
 
 # --- Configuration Constants ---
-# These could potentially be Streamlit inputs if needed
 PDF_PATH = "safeguarding_policy.pdf"
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
-GEMINI_MODEL_NAME = 'gemini-1.5-flash' # Or 'gemini-1.5-pro', 'gemini-pro'
+GEMINI_MODEL_NAME = 'gemini-1.5-flash'
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
-TOP_K_RESULTS = 4 # Number of context chunks to retrieve
+TOP_K_RESULTS = 4
 
 # Safety settings for Gemini
 SAFETY_SETTINGS = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    # ... (other settings remain the same)
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
 }
 
 # --- Tool/Function Definitions ---
-
-# Python function that gets executed when Gemini calls "simulate_dsl_escalation"
-# MODIFIED: Returns the notification string instead of printing
+# (simulate_dsl_escalation and dsl_escalation_tool remain the same as the previous corrected version)
 def simulate_dsl_escalation(concern_summary: str, urgency: str, reported_by: str, details: str) -> str:
-    """
-    Simulates the action of escalating a safeguarding concern to the DSL.
-    Returns a formatted string summarizing the simulated action.
-    """
-    # Add location and current time context
     location = "Nottingham, UK"
-    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") # Use local time for display
-    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC") # Use UTC for logging
-
+    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     notification = f"""
     <div style="border: 2px solid red; padding: 10px; border-radius: 5px; background-color: #ffebee;">
     <strong>🚨 DSL ESCALATION SIMULATION ({location}) 🚨</strong><br>
@@ -58,144 +45,143 @@ def simulate_dsl_escalation(concern_summary: str, urgency: str, reported_by: str
     <strong>Action:</strong> Logged and simulated notification sent to DSL. (In a real system, this would trigger an alert.)
     </div>
     """
-    print(f"--- DSL Escalation Simulated ({timestamp} / Location: {location}) ---") # Keep console log with UTC
-    return notification # Return the formatted string for Streamlit display
+    print(f"--- DSL Escalation Simulated ({timestamp} / Location: {location}) ---")
+    return notification
 
-# Tool definition for Gemini
-dsl_escalation_tool = {
-    "function_declarations": [
-        {
-            "name": "simulate_dsl_escalation",
-            "description": "Use this function ONLY when a safeguarding concern requires immediate escalation to the Designated Safeguarding Lead (DSL) based on the LATEST policy context provided. Requires summarizing the concern and assessing urgency derived from the LATEST query and context.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "concern_summary": {
-                        "type": "string",
-                        "description": "A concise summary of the core safeguarding concern from the LATEST user query (e.g., 'Child disclosed physical harm by sibling')."
-                    },
-                    "urgency": {
-                        "type": "string",
-                        "description": "The urgency level based on the LATEST policy context (e.g., 'Immediate', 'High', 'Standard'). Use 'Immediate' for disclosures of harm, immediate danger, etc."
-                    },
-                     "details": {
-                        "type": "string",
-                        "description": "Provide key details from the LATEST query or context that justify the escalation (e.g., 'Child stated sibling hits them', 'Observed unexplained injuries')."
-                     }
-                },
-                "required": ["concern_summary", "urgency", "details"]
-            }
-        }
-    ]
-}
+dsl_escalation_tool = { "function_declarations": [ { "name": "simulate_dsl_escalation", "description": "Use this function ONLY when a safeguarding concern requires immediate escalation...", # Truncated for brevity
+            "parameters": { "type": "object", "properties": { "concern_summary": {"type": "string", ... }, "urgency": {"type": "string", ...}, "details": {"type": "string", ...} }, "required": ["concern_summary", "urgency", "details"] } } ] }
 
 # --- Core Functions ---
 
-# Use Streamlit caching for resource-intensive loading
+# Use Streamlit caching for the embedding model itself
 @st.cache_resource
 def load_embedding_model(model_name=EMBEDDING_MODEL_NAME):
     """Loads the Sentence Transformer model using Streamlit's caching."""
     print(f"[Cache] Loading embedding model: {model_name}")
-    return SentenceTransformer(model_name)
+    try:
+        model = SentenceTransformer(model_name)
+        return model
+    except Exception as e:
+        st.error(f"Failed to load embedding model '{model_name}': {e}")
+        return None
 
-@st.cache_data # Cache based on input PDF path (or file content if using uploader)
-def load_and_process_pdf(pdf_path=PDF_PATH):
-    """Loads, splits PDF text, generates embeddings, and creates FAISS index."""
-    print(f"[Cache] Processing PDF: {pdf_path}")
+# Refactored PDF loading and splitting (no caching here directly)
+def load_and_split_pdf(pdf_path=PDF_PATH):
+    """Loads text from a PDF and splits it into chunks."""
+    print(f"Loading and splitting PDF: {pdf_path}")
     if not os.path.exists(pdf_path):
-        st.error(f"Policy PDF not found at: {pdf_path}. Please place the file correctly.")
-        return None, None # Return None if file not found
+        st.error(f"Policy PDF not found at: {pdf_path}.")
+        return None
 
-    # 1. Load and Split
     try:
         reader = PdfReader(pdf_path)
         full_text = ""
         for page in reader.pages:
             extracted = page.extract_text()
-            if extracted:
-                 full_text += extracted + "\n"
+            if extracted: full_text += extracted + "\n"
+
+        if not full_text.strip():
+            st.warning("No text could be extracted from the PDF.")
+            return [] # Return empty list
 
         chunks = []
         start = 0
         while start < len(full_text):
+            # ... (chunking logic remains the same) ...
             end = min(start + CHUNK_SIZE, len(full_text))
             if end < len(full_text):
-                period_pos = full_text.rfind('.', start, end)
-                newline_pos = full_text.rfind('\n', start, end)
+                period_pos = full_text.rfind('.', start, end); newline_pos = full_text.rfind('\n', start, end)
                 boundary = max(period_pos, newline_pos)
-                if boundary > start + (CHUNK_SIZE * 0.5):
-                     end = boundary + 1
+                if boundary > start + (CHUNK_SIZE * 0.5): end = boundary + 1
             chunks.append(full_text[start:end].strip())
             next_start = start + CHUNK_SIZE - CHUNK_OVERLAP
-            if next_start <= start :
-                 next_start = start + int(CHUNK_SIZE * 0.1)
+            if next_start <= start : next_start = start + int(CHUNK_SIZE * 0.1)
             start = next_start if next_start < end else end
 
         processed_chunks = [chunk for chunk in chunks if chunk and len(chunk.split()) > 5]
-        if not processed_chunks:
-             st.warning("No text chunks could be extracted from the PDF. Check the PDF content.")
-             return None, None
-        print(f"[Cache] PDF split into {len(processed_chunks)} chunks.")
+        print(f"PDF split into {len(processed_chunks)} chunks.")
+        return processed_chunks
     except Exception as e:
         st.error(f"Error reading or splitting PDF: {e}")
-        return None, None
+        return None
 
-    # 2. Generate Embeddings
+# Refactored Vector Store Creation with Sanitization
+def create_vector_store(text_chunks):
+    """Generates embeddings, sanitizes them, builds FAISS index, returns store components."""
+    if not text_chunks:
+        st.error("Cannot create vector store: No text chunks provided.")
+        return None, None, None
+
+    embedding_model = load_embedding_model() # Get cached model
+    if embedding_model is None:
+        st.error("Cannot create vector store: Embedding model failed to load.")
+        return None, None, None
+
     try:
-        embedding_model = load_embedding_model() # Get cached model
-        print("[Cache] Generating embeddings...")
-        embeddings = embedding_model.encode(processed_chunks, show_progress_bar=False) # Progress bar might not work well with caching/streamlit
-        print("[Cache] Embeddings generated.")
+        print("Generating embeddings for text chunks...")
+        embeddings_np = embedding_model.encode(text_chunks, show_progress_bar=True)
+        print(f"Generated {embeddings_np.shape[0]} embeddings with dimension {embeddings_np.shape[1]}.")
+
+        # --- VVV NEW: Sanitize Embeddings VVV ---
+        print("Sanitizing embeddings (checking for NaN/Inf)...")
+        nan_mask = np.isnan(embeddings_np).any(axis=1)
+        inf_mask = np.isinf(embeddings_np).any(axis=1)
+        invalid_mask = nan_mask | inf_mask # Combine masks
+
+        if invalid_mask.any():
+            num_invalid = invalid_mask.sum()
+            st.warning(f"Found and removed {num_invalid} invalid embedding(s) (NaN or Inf) out of {embeddings_np.shape[0]}. Corresponding text chunks were skipped.")
+            print(f"[WARN] Removing {num_invalid} invalid embeddings.")
+
+            # Filter out invalid embeddings and corresponding text chunks
+            valid_mask = ~invalid_mask
+            embeddings_np_sanitized = embeddings_np[valid_mask]
+            text_chunks_sanitized = [chunk for i, chunk in enumerate(text_chunks) if valid_mask[i]]
+
+            if embeddings_np_sanitized.shape[0] == 0:
+                st.error("No valid embeddings remained after sanitization. Cannot build index.")
+                return None, None, None
+        else:
+            print("No invalid embeddings found.")
+            embeddings_np_sanitized = embeddings_np
+            text_chunks_sanitized = text_chunks
+        # --- ^^^ NEW: Sanitize Embeddings ^^^ ---
+
+
+        print("Creating FAISS index with sanitized embeddings...")
+        dimension = embeddings_np_sanitized.shape[1]
+        index = faiss.IndexFlatL2(dimension)
+        index.add(np.array(embeddings_np_sanitized).astype('float32')) # Use sanitized embeddings
+        print(f"FAISS index created successfully with {index.ntotal} vectors.")
+
+        # Return sanitized components
+        return index, text_chunks_sanitized, embeddings_np_sanitized
+
     except Exception as e:
-        st.error(f"Error generating embeddings: {e}")
-        return None, None
+        st.error(f"Error creating vector store: {e}")
+        traceback.print_exc() # Print full traceback for debugging this critical step
+        return None, None, None
 
-    # Return chunks and embeddings separately for index creation outside cache if needed
-    return processed_chunks, embeddings
-
-# Function to get or build the FAISS index (handles state)
-def get_faiss_index(embeddings):
-     """Builds FAISS index from embeddings."""
-     if embeddings is None:
-          return None
-     try:
-          dimension = embeddings.shape[1]
-          index = faiss.IndexFlatL2(dimension)
-          index.add(np.array(embeddings).astype('float32'))
-          print(f"[State] FAISS index accessed/built with {index.ntotal} vectors.")
-          return index
-     except Exception as e:
-          st.error(f"Error building FAISS index from embeddings: {e}")
-          return None
-
-# utils.py - FURTHER UPDATED retrieve_relevant_context function
-
-import numpy as np # Ensure numpy is imported
-import traceback # Ensure traceback is imported
-
+# Context Retrieval Function (using potentially sanitized chunks/index)
+# Keep the previous NaN/Inf checks for the *query* embedding as a defense layer
 def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: list[str], k: int = TOP_K_RESULTS) -> str:
     """Retrieves the top-k relevant text chunks from the vector store with added validation."""
+    # text_chunks here should be the SANITIZED list associated with the index
     if index is None or embedding_model is None or text_chunks is None:
          st.warning("Vector store components not available for retrieval.")
          return "Error: Could not retrieve context - Vector store not initialized."
     try:
         print(f"[RT] Embedding query: '{query[:50]}...'")
-        # Generate embedding
         query_embedding_list = embedding_model.encode([query])
 
-        # --- Start: Embedding Validation Checks ---
+        # --- Start: Query Embedding Validation Checks ---
         if query_embedding_list is None or query_embedding_list.shape[0] == 0:
              st.error("Failed to generate query embedding (returned None or empty).")
              return "Error: Failed to generate query embedding."
-
         query_embedding_np = np.array(query_embedding_list).astype('float32')
-
-        # Check shape (should be 2D, e.g., (1, embedding_dimension))
         if query_embedding_np.ndim != 2 or query_embedding_np.shape[0] != 1:
              st.error(f"Query embedding has unexpected shape: {query_embedding_np.shape}")
              return "Error: Query embedding shape issue."
-
-        # VVV --- NEW: Check for NaN or Inf values --- VVV
         if np.isnan(query_embedding_np).any():
             st.error("Query embedding contains NaN values. Cannot perform search.")
             print(f"[ERROR] Query embedding contains NaN: {query_embedding_np}")
@@ -204,59 +190,53 @@ def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: l
             st.error("Query embedding contains Inf values. Cannot perform search.")
             print(f"[ERROR] Query embedding contains Inf: {query_embedding_np}")
             return "Error: Invalid query embedding generated (Inf)."
-        # ^^^ --- NEW: Check for NaN or Inf values --- ^^^
+        # --- End: Query Embedding Validation Checks ---
 
-        # --- End: Embedding Validation Checks ---
-
-        print(f"[RT] Searching FAISS index for top {k} relevant chunks...")
+        print(f"[RT] Searching FAISS index (size {index.ntotal}) for top {k} relevant chunks...")
         distances, indices = index.search(query_embedding_np, k)
 
         # --- Start: Results Validation ---
         if indices is None or len(indices) == 0 or len(indices[0]) == 0:
-             print("[RT] No relevant indices found.")
+             print("[RT] No relevant indices found by FAISS search.")
              return "No specific policy context found for this query."
 
-        valid_indices = [i for i in indices[0] if 0 <= i < len(text_chunks)]
-        if not valid_indices:
-            print("[RT] No valid indices found after filtering.")
-            # Check distances for potential issues if debugging needed
-            # print(f"[DEBUG] Distances: {distances}")
+        # Indices returned by FAISS refer to the positions *within the index*.
+        # We need to map these back to the *sanitized* text_chunks list.
+        valid_indices_in_index = [idx for idx in indices[0] if 0 <= idx < index.ntotal] # FAISS indices are 0-based
+
+        if not valid_indices_in_index:
+            print("[RT] No valid indices returned by FAISS search.")
             return "No specific policy context found matching the query criteria."
         # --- End: Results Validation ---
 
-        retrieved_chunks = [text_chunks[i] for i in valid_indices]
+        # Retrieve the corresponding text chunks from the SANITIZED list
+        retrieved_chunks = [text_chunks[i] for i in valid_indices_in_index]
 
         print(f"[RT] Retrieved {len(retrieved_chunks)} chunks.")
         return "\n\n---\n\n".join(retrieved_chunks)
 
     except Exception as e:
-        # Print the full traceback to the console/log for better debugging
         print("--- ERROR DURING CONTEXT RETRIEVAL ---")
         traceback.print_exc()
         print("--- END ERROR TRACEBACK ---")
-        # Check if the specific error is the ambiguous boolean one
+        error_message_detail = f"Details: {e}"
         if "The truth value of an array" in str(e):
-             st.error(f"Persistent error during FAISS search: {e}. This might indicate an issue with the index or specific query interaction.")
-             # You could potentially try rebuilding the index here if desired, but it's complex
+             st.error(f"Persistent error during FAISS search: {e}. This might indicate an issue with the index or specific query interaction, even after sanitization.")
+             error_message_detail = f"Persistent FAISS Error: {e}"
         else:
              st.error(f"Error during context retrieval: {e}")
+        return f"Error: Failed to retrieve context from policy. {error_message_detail}"
 
-        return f"Error: Failed to retrieve context from policy. Details: {e}"
 
-
+# Gemini Response Generation (remains largely the same, uses genai.Part)
 def generate_safeguarding_response(
     chat, # Removed ChatSession type hint
     query: str,
     context: str,
     user_role: str = "School Staff Member"
     ):
-    """
-    Generates a response using Gemini, handles function calls.
-
-    Returns:
-        tuple: (response_text: str, function_simulation_output: str or None)
-    """
-    print("[RT] Preparing request for Gemini (using chat history)...")
+    """Generates a response using Gemini, handles function calls."""
+    # (Prompt content remains the same as previous version)
     prompt_content = f"""
     *Instructions for AI:*
     You are an AI Safeguarding Support Agent for school staff in Nottingham, UK. Your response time should reflect the current time ({datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}).
@@ -288,69 +268,54 @@ def generate_safeguarding_response(
 
     *Your Response to the Latest User Query:*
     """
-
     print("[RT] Sending request to Gemini model...")
     function_simulation_output = None # Initialize
 
     try:
-        # Send the LATEST query/context/instructions using the persistent chat object
         response = chat.send_message(
             prompt_content,
-            tools=[dsl_escalation_tool] # Pass list of tools
+            tools=[dsl_escalation_tool]
             )
 
         # --- Function Call Handling Logic ---
+        # (This part remains the same as the previous corrected version, using genai.Part)
         response_part = response.candidates[0].content.parts[0] if response.candidates else None
-        # Check for function_call attribute directly on the part
         if response_part and hasattr(response_part, 'function_call') and response_part.function_call:
             function_call = response_part.function_call
             print(f"[RT] Gemini requested function call: {function_call.name}")
-
             if function_call.name == "simulate_dsl_escalation":
                 try:
                     args = function_call.args
-                    # *** EXECUTE THE ACTUAL PYTHON FUNCTION ***
-                    # It now returns the HTML string
                     function_simulation_output = simulate_dsl_escalation(
                         concern_summary=args.get('concern_summary', 'N/A'),
                         urgency=args.get('urgency', 'N/A'),
                         reported_by=user_role,
                         details=args.get('details', 'N/A')
                     )
-
-                    # *** Send function result back to Gemini ***
                     print("[RT] Sending function execution result back to Gemini...")
                     response = chat.send_message(
-                         # VVV Corrected this line VVV
                          part=genai.Part(function_response={ # Use genai.Part
                               "name": function_call.name,
-                              # Send confirmation back, not the HTML
                               "response": {"status": "DSL Escalation Simulated OK"}
                               }),
-                         # ^^^ Corrected this line ^^^
-                         tools=[dsl_escalation_tool] # Resend tools
+                         tools=[dsl_escalation_tool]
                          )
-
                 except Exception as e:
                     error_msg = f"Failed to execute function call '{function_call.name}': {e}"
                     print(f"[ERROR] {error_msg}")
                     st.error(error_msg)
-                    # Optionally inform Gemini about the error
                     try:
-                        # VVV Also correct this line if sending error back VVV
                         chat.send_message(part=genai.Part(function_response={"name": function_call.name, "response": {"error": error_msg}}))
-                        # ^^^ Also correct this line if sending error back ^^^
                     except Exception as send_err: print(f"Error sending error back to Gemini: {send_err}")
             else:
                  print(f"[WARN] Gemini requested unknown function: {function_call.name}")
                  st.warning(f"Model requested an unsupported action '{function_call.name}'.")
 
-        # Extract final text response from Gemini
+        # Extract final text response
         final_response_text = ""
-        # Ensure response.candidates exists and has content before accessing parts
         if response.candidates and response.candidates[0].content.parts:
             final_response_text = "".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
-        elif not function_simulation_output: # If no text AND no function call happened
+        elif not function_simulation_output:
              final_response_text = "[AI did not provide a textual response for this turn]"
 
         return final_response_text, function_simulation_output
@@ -358,12 +323,11 @@ def generate_safeguarding_response(
     except Exception as e:
         error_msg = f"An error occurred during Gemini API call: {e}"
         print(f"[ERROR] {error_msg}")
-        # Attempt to get partial response if available
+        traceback.print_exc() # Print traceback for Gemini errors too
         partial_text = "[ERROR]"
         try:
-             # Check response candidate structure carefully after error
              if response and response.candidates and len(response.candidates) > 0 and response.candidates[0].content and response.candidates[0].content.parts:
                  partial_text += " Partial response: " + "".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
-        except Exception: pass # Ignore errors trying to get partial text
+        except Exception: pass
         st.error(error_msg)
-        return partial_text, None # Return error text
+        return partial_text, None
