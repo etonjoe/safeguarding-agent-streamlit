@@ -1,0 +1,32 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables
+.env*
+*.env
+
+# Virtual environment
+venv/
+env/
+*/venv/
+*/env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Streamlit secrets (if used locally, though better managed on deployment)
+.streamlit/secrets.toml
+
+# FAISS index (if saved - not in this example, but good practice if you persist it)
+*.index
+
+# Other
+*.log
+*.tmp
+*.bak
