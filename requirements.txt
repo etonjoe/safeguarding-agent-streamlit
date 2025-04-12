@@ -11,5 +11,5 @@ sentence-transformers==2.7.0 # Recent stable version compatible with above
 
 # --- Other Dependencies ---
 faiss-cpu==1.7.4 # Downgrade from 1.8.0
-numpy==1.26.4 # Pin numpy version
+numpy==1.24.4 # Pin numpy version
 python-dotenv==1.0.1 # Pin dotenv version
