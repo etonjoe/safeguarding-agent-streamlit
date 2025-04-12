@@ -4,7 +4,7 @@ import json
 import datetime
 import streamlit as st # Import streamlit for caching etc.
 import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold, ChatSession, Part
+from google.generativeai.types import HarmCategory, HarmBlockThreshold, Part  # Removed ChatSession
 
 # PDF Processing & Vector Store Libraries
 from pypdf import PdfReader
@@ -199,7 +199,7 @@ def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: l
 
 
 def generate_safeguarding_response(
-    chat: ChatSession,
+    chat, # <--- Removed ChatSession type hint
     query: str,
     context: str,
     user_role: str = "School Staff Member"
