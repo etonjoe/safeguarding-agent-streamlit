@@ -13,13 +13,13 @@ This application provides an AI-powered interface to query a school's safeguardi
 * **Streamlit UI:** Easy-to-use web interface.
 
 ## Project Structure
-safeguarding-agent-streamlit/
-├── .gitignore
-├── app.py                  # Main Streamlit application
-├── requirements.txt        # Python dependencies
-├── safeguarding_policy.pdf # Your policy document (PLACE IT HERE)
-├── utils.py                # Helper functions (PDF, Vector Store, Gemini Call)
-└── README.md               # This file
+safeguarding-agent-streamlit/ 
+ ├── .gitignore
+ ├── app.py                  # Main Streamlit application
+ ├── requirements.txt        # Python dependencies
+ ├── safeguarding_policy.pdf # Your policy document (PLACE IT HERE)
+ ├── utils.py                # Helper functions (PDF, Vector Store, Gemini Call)
+ └── README.md               # This file
 
 
 ## Setup Instructions
