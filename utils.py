@@ -175,13 +175,15 @@ def create_vector_store(text_chunks):
         return None, None, None
 
 def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: list[str], k: int = TOP_K_RESULTS) -> str:
-    """Retrieves the top-k relevant text chunks from the vector store with added validation."""
+    """Retrieves the top-k relevant text chunks from the vector store with added validation and logging."""
     if index is None or embedding_model is None or text_chunks is None:
          st.warning("Vector store components not available for retrieval.")
          return "Error: Could not retrieve context - Vector store not initialized."
     try:
         print(f"[RT] Embedding query: '{query[:50]}...'")
         query_embedding_list = embedding_model.encode([query])
+
+        # --- Start: Query Embedding Validation Checks ---
         if query_embedding_list is None or query_embedding_list.shape[0] == 0:
              st.error("Failed to generate query embedding (returned None or empty).")
              return "Error: Failed to generate query embedding."
@@ -197,23 +199,44 @@ def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: l
             st.error("Query embedding contains Inf values. Cannot perform search.")
             print(f"[ERROR] Query embedding contains Inf: {query_embedding_np}")
             return "Error: Invalid query embedding generated (Inf)."
-        print(f"[RT] Searching FAISS index (size {index.ntotal}) for top {k} relevant chunks...")
-        distances, indices = index.search(query_embedding_np, k)
+        # --- End: Query Embedding Validation Checks ---
+
+        # VVV --- ADDED LOGGING --- VVV
+        print(f"[RT] Preparing for FAISS search:")
+        print(f"[RT]   Query Embedding Shape: {query_embedding_np.shape}")
+        print(f"[RT]   Query Embedding DType: {query_embedding_np.dtype}")
+        print(f"[RT]   Index is object?: {'Yes' if index else 'No'}")
+        if index:
+            print(f"[RT]   Index ntotal: {index.ntotal}")
+            print(f"[RT]   Index dimension (d): {index.d}")
+        print(f"[RT]   Search k: {k}")
+        # ^^^ --- ADDED LOGGING --- ^^^
+
+        print(f"[RT] Searching FAISS index...")
+        distances, indices = index.search(query_embedding_np, k) # The likely failing line
+        print(f"[RT] FAISS search completed.") # This likely won't print if search fails
+
+        # --- Start: Results Validation ---
+        # (Rest of the function remains the same as the previous version)
         if indices is None or len(indices) == 0 or len(indices[0]) == 0:
              print("[RT] No relevant indices found by FAISS search.")
              return "No specific policy context found for this query."
         valid_indices_in_index = [idx for idx in indices[0] if 0 <= idx < index.ntotal]
         if not valid_indices_in_index:
-            print("[RT] No valid indices returned by FAISS search.")
+            print("[RT] No valid indices returned by FAISS search or filtering.")
             return "No specific policy context found matching the query criteria."
+        # --- End: Results Validation ---
+
         retrieved_chunks = [text_chunks[i] for i in valid_indices_in_index]
         print(f"[RT] Retrieved {len(retrieved_chunks)} chunks.")
         return "\n\n---\n\n".join(retrieved_chunks)
+
     except Exception as e:
         print("--- ERROR DURING CONTEXT RETRIEVAL ---")
-        traceback.print_exc()
+        traceback.print_exc() # Print full traceback to logs
         print("--- END ERROR TRACEBACK ---")
         error_message_detail = f"Details: {e}"
+        # Check if the specific error is the ambiguous boolean one
         if "The truth value of an array" in str(e):
              st.error(f"Persistent error during FAISS search: {e}. This might indicate an issue with the index or specific query interaction, even after sanitization.")
              error_message_detail = f"Persistent FAISS Error: {e}"
