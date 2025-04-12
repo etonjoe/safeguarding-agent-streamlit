@@ -1,7 +1,12 @@
-streamlit>=1.33.0 # Use a recent version
+streamlit>=1.33.0
 google-generativeai>=0.5.0
 pypdf>=4.0.0
-sentence-transformers>=2.6.0
-faiss-cpu>=1.7.4 # Or faiss-gpu if you have the setup
+# Pin torch and related libraries carefully
+torch==2.2.2 # Example specific version
+torchvision==0.17.2 # Match torch version if needed
+torchaudio==2.2.2 # Match torch version if needed
+transformers==4.38.2 # Version often compatible with recent torch
+sentence-transformers>=2.6.0 # Usually okay with recent transformers/torch
+faiss-cpu>=1.7.4 # Or faiss-gpu if supported/needed
 numpy>=1.24.0
-python-dotenv>=1.0.0 # Good practice for local API key management
+python-dotenv>=1.0.0
