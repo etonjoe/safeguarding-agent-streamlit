@@ -4,7 +4,9 @@ import json
 import datetime
 import streamlit as st # Import streamlit for caching etc.
 import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold, Part  # Removed ChatSession
+# VVV Corrected this line VVV
+from google.generativeai.types import HarmCategory, HarmBlockThreshold # Removed Part from here
+# ^^^ Corrected this line ^^^
 
 # PDF Processing & Vector Store Libraries
 from pypdf import PdfReader
@@ -38,12 +40,16 @@ def simulate_dsl_escalation(concern_summary: str, urgency: str, reported_by: str
     Simulates the action of escalating a safeguarding concern to the DSL.
     Returns a formatted string summarizing the simulated action.
     """
-    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    # Add location and current time context
+    location = "Nottingham, UK"
+    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") # Use local time for display
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC") # Use UTC for logging
+
     notification = f"""
     <div style="border: 2px solid red; padding: 10px; border-radius: 5px; background-color: #ffebee;">
-    <strong>🚨 DSL ESCALATION SIMULATION 🚨</strong><br>
+    <strong>🚨 DSL ESCALATION SIMULATION ({location}) 🚨</strong><br>
     ---------------------------------------------------------<br>
-    <strong>Timestamp:</strong> {timestamp}<br>
+    <strong>Simulated Time:</strong> {current_time_str}<br>
     <strong>Urgency:</strong> {urgency}<br>
     <strong>Reported By:</strong> {reported_by}<br>
     <strong>Concern Summary:</strong> {concern_summary}<br>
@@ -52,7 +58,7 @@ def simulate_dsl_escalation(concern_summary: str, urgency: str, reported_by: str
     <strong>Action:</strong> Logged and simulated notification sent to DSL. (In a real system, this would trigger an alert.)
     </div>
     """
-    print(f"--- DSL Escalation Simulated ({timestamp}) ---") # Keep console log
+    print(f"--- DSL Escalation Simulated ({timestamp} / Location: {location}) ---") # Keep console log with UTC
     return notification # Return the formatted string for Streamlit display
 
 # Tool definition for Gemini
@@ -98,7 +104,7 @@ def load_and_process_pdf(pdf_path=PDF_PATH):
     print(f"[Cache] Processing PDF: {pdf_path}")
     if not os.path.exists(pdf_path):
         st.error(f"Policy PDF not found at: {pdf_path}. Please place the file correctly.")
-        return None, None, None # Return None if file not found
+        return None, None # Return None if file not found
 
     # 1. Load and Split
     try:
@@ -128,11 +134,11 @@ def load_and_process_pdf(pdf_path=PDF_PATH):
         processed_chunks = [chunk for chunk in chunks if chunk and len(chunk.split()) > 5]
         if not processed_chunks:
              st.warning("No text chunks could be extracted from the PDF. Check the PDF content.")
-             return None, None, None
+             return None, None
         print(f"[Cache] PDF split into {len(processed_chunks)} chunks.")
     except Exception as e:
         st.error(f"Error reading or splitting PDF: {e}")
-        return None, None, None
+        return None, None
 
     # 2. Generate Embeddings
     try:
@@ -142,23 +148,10 @@ def load_and_process_pdf(pdf_path=PDF_PATH):
         print("[Cache] Embeddings generated.")
     except Exception as e:
         st.error(f"Error generating embeddings: {e}")
-        return None, None, None
+        return None, None
 
-    # 3. Create FAISS Index
-    try:
-        dimension = embeddings.shape[1]
-        index = faiss.IndexFlatL2(dimension)
-        index.add(np.array(embeddings).astype('float32'))
-        print(f"[Cache] FAISS index created with {index.ntotal} vectors.")
-        # NOTE: Index is not serializable directly in st.cache_data.
-        # We might need to handle index creation outside or manage its state carefully.
-        # For simplicity here, we return components needed to build it if required again.
-        # A better approach for large indices might save/load the index to disk.
-        # Let's return embeddings and chunks, and build index in the app if needed.
-        return processed_chunks, embeddings # Return chunks and their embeddings
-    except Exception as e:
-        st.error(f"Error creating FAISS index: {e}")
-        return None, None, None
+    # Return chunks and embeddings separately for index creation outside cache if needed
+    return processed_chunks, embeddings
 
 # Function to get or build the FAISS index (handles state)
 def get_faiss_index(embeddings):
@@ -175,10 +168,10 @@ def get_faiss_index(embeddings):
           st.error(f"Error building FAISS index from embeddings: {e}")
           return None
 
-
-def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: list[str], embeddings_np: np.ndarray, k: int = TOP_K_RESULTS) -> str:
+def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: list[str], k: int = TOP_K_RESULTS) -> str:
     """Retrieves the top-k relevant text chunks from the vector store."""
-    if index is None or embedding_model is None or text_chunks is None or embeddings_np is None:
+    # Renamed embeddings_np argument to avoid conflict if passed directly, though it's not used here
+    if index is None or embedding_model is None or text_chunks is None:
          st.warning("Vector store components not available for retrieval.")
          return "Error: Could not retrieve context."
     try:
@@ -199,7 +192,7 @@ def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: l
 
 
 def generate_safeguarding_response(
-    chat, # <--- Removed ChatSession type hint
+    chat, # Removed ChatSession type hint
     query: str,
     context: str,
     user_role: str = "School Staff Member"
@@ -213,7 +206,7 @@ def generate_safeguarding_response(
     print("[RT] Preparing request for Gemini (using chat history)...")
     prompt_content = f"""
     *Instructions for AI:*
-    You are an AI Safeguarding Support Agent for school staff in Nottingham, UK.
+    You are an AI Safeguarding Support Agent for school staff in Nottingham, UK. Your response time should reflect the current time ({datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}).
     Your purpose is to provide clear, actionable guidance based *strictly* on the provided safeguarding policy context.
     Prioritize child safety. Do not provide advice outside of the given policy context.
     If the policy context is missing or insufficient for the *latest query*, state that clearly.
@@ -221,6 +214,7 @@ def generate_safeguarding_response(
     However, base your specific safeguarding advice, procedures, and reporting requirements *strictly* on the **Newly Retrieved Policy Context** provided below, as this is most relevant to the **Latest User Query**.
 
     *User Role:* {user_role}
+    *Current Location:* Nottingham, England, United Kingdom
 
     *Newly Retrieved Policy Context (Relevant to Latest Query):*
     --- START OF CONTEXT ---
@@ -254,6 +248,7 @@ def generate_safeguarding_response(
 
         # --- Function Call Handling Logic ---
         response_part = response.candidates[0].content.parts[0] if response.candidates else None
+        # Check for function_call attribute directly on the part
         if response_part and hasattr(response_part, 'function_call') and response_part.function_call:
             function_call = response_part.function_call
             print(f"[RT] Gemini requested function call: {function_call.name}")
@@ -273,11 +268,13 @@ def generate_safeguarding_response(
                     # *** Send function result back to Gemini ***
                     print("[RT] Sending function execution result back to Gemini...")
                     response = chat.send_message(
-                         part=Part(function_response={ # Use Part directly
+                         # VVV Corrected this line VVV
+                         part=genai.Part(function_response={ # Use genai.Part
                               "name": function_call.name,
                               # Send confirmation back, not the HTML
                               "response": {"status": "DSL Escalation Simulated OK"}
                               }),
+                         # ^^^ Corrected this line ^^^
                          tools=[dsl_escalation_tool] # Resend tools
                          )
 
@@ -287,7 +284,9 @@ def generate_safeguarding_response(
                     st.error(error_msg)
                     # Optionally inform Gemini about the error
                     try:
-                        chat.send_message(part=Part(function_response={"name": function_call.name, "response": {"error": error_msg}}))
+                        # VVV Also correct this line if sending error back VVV
+                        chat.send_message(part=genai.Part(function_response={"name": function_call.name, "response": {"error": error_msg}}))
+                        # ^^^ Also correct this line if sending error back ^^^
                     except Exception as send_err: print(f"Error sending error back to Gemini: {send_err}")
             else:
                  print(f"[WARN] Gemini requested unknown function: {function_call.name}")
@@ -295,6 +294,7 @@ def generate_safeguarding_response(
 
         # Extract final text response from Gemini
         final_response_text = ""
+        # Ensure response.candidates exists and has content before accessing parts
         if response.candidates and response.candidates[0].content.parts:
             final_response_text = "".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
         elif not function_simulation_output: # If no text AND no function call happened
@@ -308,8 +308,9 @@ def generate_safeguarding_response(
         # Attempt to get partial response if available
         partial_text = "[ERROR]"
         try:
-            if response and response.candidates and response.candidates[0].content.parts:
+             # Check response candidate structure carefully after error
+             if response and response.candidates and len(response.candidates) > 0 and response.candidates[0].content and response.candidates[0].content.parts:
                  partial_text += " Partial response: " + "".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
-        except Exception: pass
+        except Exception: pass # Ignore errors trying to get partial text
         st.error(error_msg)
         return partial_text, None # Return error text
