@@ -1,12 +1,15 @@
-streamlit>=1.33.0
-google-generativeai>=0.5.0
-pypdf>=4.0.0
-# Pin torch and related libraries carefully
-torch==2.2.2 # Example specific version
-torchvision==0.17.2 # Match torch version if needed
-torchaudio==2.2.2 # Match torch version if needed
-transformers==4.38.2 # Version often compatible with recent torch
-sentence-transformers>=2.6.0 # Usually okay with recent transformers/torch
-faiss-cpu>=1.7.4 # Or faiss-gpu if supported/needed
-numpy>=1.24.0
-python-dotenv>=1.0.0
+# requirements.txt (Pinned for Streamlit Cloud Compatibility)
+
+streamlit==1.35.0 # Pin streamlit version
+google-generativeai==0.5.4 # Pin genai version
+pypdf==4.2.0 # Pin pypdf version
+
+# --- Core ML/Torch Dependencies - Pinned Carefully ---
+torch==2.2.2
+transformers==4.38.2 # Often compatible with torch 2.2.x
+sentence-transformers==2.7.0 # Recent stable version compatible with above
+
+# --- Other Dependencies ---
+faiss-cpu==1.8.0 # Pin faiss-cpu version
+numpy==1.26.4 # Pin numpy version
+python-dotenv==1.0.1 # Pin dotenv version
