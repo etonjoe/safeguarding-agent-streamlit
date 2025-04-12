@@ -5,16 +5,16 @@ import os
 import time
 from dotenv import load_dotenv # To load .env file for local dev
 
-# Import functions from utils.py
+# app.py - CORRECTED IMPORT BLOCK
 from utils import (
-    load_and_process_pdf,
-    get_faiss_index,
-    load_embedding_model,
-    retrieve_relevant_context,
-    generate_safeguarding_response,
-    GEMINI_MODEL_NAME,
-    SAFETY_SETTINGS,
-    PDF_PATH # Use PDF_PATH from utils
+    load_and_split_pdf,         # Correct function name for PDF loading/splitting
+    create_vector_store,        # New function for embeddings, sanitization, index creation
+    load_embedding_model,       # Still needed for retrieval
+    retrieve_relevant_context,    # Still needed for getting context
+    generate_safeguarding_response, # Still needed for calling Gemini
+    GEMINI_MODEL_NAME,          # Constant used in app.py
+    SAFETY_SETTINGS,            # Constant used in app.py (if you kept it there, otherwise remove)
+    PDF_PATH                    # Constant used in app.py
 )
 
 # --- Page Configuration ---
