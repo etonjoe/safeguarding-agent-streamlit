@@ -1,4 +1,4 @@
-# utils.py (Version with Index Sanitization)
+# utils.py (Version with SyntaxError Fix and Index Sanitization)
 import os
 import json
 import datetime
@@ -14,7 +14,7 @@ import traceback # Import traceback
 # --- Configuration Constants ---
 PDF_PATH = "safeguarding_policy.pdf"
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
-GEMINI_MODEL_NAME = 'gemini-1.5-flash'
+GEMINI_MODEL_NAME = 'gemini-1.5-flash' # Or 'gemini-1.5-pro', 'gemini-pro'
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
 TOP_K_RESULTS = 4
@@ -22,21 +22,28 @@ TOP_K_RESULTS = 4
 # Safety settings for Gemini
 SAFETY_SETTINGS = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    # ... (other settings remain the same)
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
 }
 
 # --- Tool/Function Definitions ---
-# (simulate_dsl_escalation and dsl_escalation_tool remain the same as the previous corrected version)
+
 def simulate_dsl_escalation(concern_summary: str, urgency: str, reported_by: str, details: str) -> str:
-    location = "Nottingham, UK"
-    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """Simulates DSL escalation and returns formatted string."""
+    location = "Nottingham, UK" # Using location context
+    # Use Saturday, April 12, 2025 17:04:12 BST context if needed, otherwise use current time
+    # For consistency, let's use the system's current time but acknowledge the context time
+    context_time_str = "2025-04-12 17:04:12 BST" # From user context
+    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") # System time
     timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
     notification = f"""
     <div style="border: 2px solid red; padding: 10px; border-radius: 5px; background-color: #ffebee;">
     <strong>🚨 DSL ESCALATION SIMULATION ({location}) 🚨</strong><br>
     ---------------------------------------------------------<br>
-    <strong>Simulated Time:</strong> {current_time_str}<br>
+    <strong>Simulated Time (System):</strong> {current_time_str}<br>
+    <strong>(Context Time was: {context_time_str})</strong><br>
     <strong>Urgency:</strong> {urgency}<br>
     <strong>Reported By:</strong> {reported_by}<br>
     <strong>Concern Summary:</strong> {concern_summary}<br>
@@ -48,12 +55,38 @@ def simulate_dsl_escalation(concern_summary: str, urgency: str, reported_by: str
     print(f"--- DSL Escalation Simulated ({timestamp} / Location: {location}) ---")
     return notification
 
-dsl_escalation_tool = { "function_declarations": [ { "name": "simulate_dsl_escalation", "description": "Use this function ONLY when a safeguarding concern requires immediate escalation...", # Truncated for brevity
-            "parameters": { "type": "object", "properties": { "concern_summary": {"type": "string", ... }, "urgency": {"type": "string", ...}, "details": {"type": "string", ...} }, "required": ["concern_summary", "urgency", "details"] } } ] }
+# VVV --- Corrected and Complete Dictionary Definition --- VVV
+dsl_escalation_tool = {
+    "function_declarations": [
+        {
+            "name": "simulate_dsl_escalation",
+            "description": "Use this function ONLY when a safeguarding concern requires immediate escalation to the Designated Safeguarding Lead (DSL) based on the LATEST policy context provided. Requires summarizing the concern and assessing urgency derived from the LATEST query and context.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "concern_summary": {
+                        "type": "string",
+                        "description": "A concise summary of the core safeguarding concern from the LATEST user query (e.g., 'Child disclosed physical harm by sibling')."
+                    },
+                    "urgency": {
+                        "type": "string",
+                        "description": "The urgency level based on the LATEST policy context (e.g., 'Immediate', 'High', 'Standard'). Use 'Immediate' for disclosures of harm, immediate danger, etc."
+                    },
+                     "details": {
+                        "type": "string",
+                        "description": "Provide key details from the LATEST query or context that justify the escalation (e.g., 'Child stated sibling hits them', 'Observed unexplained injuries')."
+                     }
+                }, # Added comma if needed, ensure correct closing braces
+                "required": ["concern_summary", "urgency", "details"]
+            } # Ensure correct closing braces
+        } # Ensure correct closing braces
+    ] # Ensure correct closing braces
+}
+# ^^^ --- Corrected and Complete Dictionary Definition --- ^^^
+
 
 # --- Core Functions ---
 
-# Use Streamlit caching for the embedding model itself
 @st.cache_resource
 def load_embedding_model(model_name=EMBEDDING_MODEL_NAME):
     """Loads the Sentence Transformer model using Streamlit's caching."""
@@ -65,29 +98,24 @@ def load_embedding_model(model_name=EMBEDDING_MODEL_NAME):
         st.error(f"Failed to load embedding model '{model_name}': {e}")
         return None
 
-# Refactored PDF loading and splitting (no caching here directly)
 def load_and_split_pdf(pdf_path=PDF_PATH):
     """Loads text from a PDF and splits it into chunks."""
     print(f"Loading and splitting PDF: {pdf_path}")
     if not os.path.exists(pdf_path):
         st.error(f"Policy PDF not found at: {pdf_path}.")
         return None
-
     try:
         reader = PdfReader(pdf_path)
         full_text = ""
         for page in reader.pages:
             extracted = page.extract_text()
             if extracted: full_text += extracted + "\n"
-
         if not full_text.strip():
             st.warning("No text could be extracted from the PDF.")
-            return [] # Return empty list
-
+            return []
         chunks = []
         start = 0
         while start < len(full_text):
-            # ... (chunking logic remains the same) ...
             end = min(start + CHUNK_SIZE, len(full_text))
             if end < len(full_text):
                 period_pos = full_text.rfind('.', start, end); newline_pos = full_text.rfind('\n', start, end)
@@ -97,7 +125,6 @@ def load_and_split_pdf(pdf_path=PDF_PATH):
             next_start = start + CHUNK_SIZE - CHUNK_OVERLAP
             if next_start <= start : next_start = start + int(CHUNK_SIZE * 0.1)
             start = next_start if next_start < end else end
-
         processed_chunks = [chunk for chunk in chunks if chunk and len(chunk.split()) > 5]
         print(f"PDF split into {len(processed_chunks)} chunks.")
         return processed_chunks
@@ -105,39 +132,30 @@ def load_and_split_pdf(pdf_path=PDF_PATH):
         st.error(f"Error reading or splitting PDF: {e}")
         return None
 
-# Refactored Vector Store Creation with Sanitization
 def create_vector_store(text_chunks):
     """Generates embeddings, sanitizes them, builds FAISS index, returns store components."""
     if not text_chunks:
         st.error("Cannot create vector store: No text chunks provided.")
         return None, None, None
-
-    embedding_model = load_embedding_model() # Get cached model
+    embedding_model = load_embedding_model()
     if embedding_model is None:
         st.error("Cannot create vector store: Embedding model failed to load.")
         return None, None, None
-
     try:
         print("Generating embeddings for text chunks...")
         embeddings_np = embedding_model.encode(text_chunks, show_progress_bar=True)
         print(f"Generated {embeddings_np.shape[0]} embeddings with dimension {embeddings_np.shape[1]}.")
-
-        # --- VVV NEW: Sanitize Embeddings VVV ---
         print("Sanitizing embeddings (checking for NaN/Inf)...")
         nan_mask = np.isnan(embeddings_np).any(axis=1)
         inf_mask = np.isinf(embeddings_np).any(axis=1)
-        invalid_mask = nan_mask | inf_mask # Combine masks
-
+        invalid_mask = nan_mask | inf_mask
         if invalid_mask.any():
             num_invalid = invalid_mask.sum()
             st.warning(f"Found and removed {num_invalid} invalid embedding(s) (NaN or Inf) out of {embeddings_np.shape[0]}. Corresponding text chunks were skipped.")
             print(f"[WARN] Removing {num_invalid} invalid embeddings.")
-
-            # Filter out invalid embeddings and corresponding text chunks
             valid_mask = ~invalid_mask
             embeddings_np_sanitized = embeddings_np[valid_mask]
             text_chunks_sanitized = [chunk for i, chunk in enumerate(text_chunks) if valid_mask[i]]
-
             if embeddings_np_sanitized.shape[0] == 0:
                 st.error("No valid embeddings remained after sanitization. Cannot build index.")
                 return None, None, None
@@ -145,36 +163,25 @@ def create_vector_store(text_chunks):
             print("No invalid embeddings found.")
             embeddings_np_sanitized = embeddings_np
             text_chunks_sanitized = text_chunks
-        # --- ^^^ NEW: Sanitize Embeddings ^^^ ---
-
-
         print("Creating FAISS index with sanitized embeddings...")
         dimension = embeddings_np_sanitized.shape[1]
         index = faiss.IndexFlatL2(dimension)
-        index.add(np.array(embeddings_np_sanitized).astype('float32')) # Use sanitized embeddings
+        index.add(np.array(embeddings_np_sanitized).astype('float32'))
         print(f"FAISS index created successfully with {index.ntotal} vectors.")
-
-        # Return sanitized components
         return index, text_chunks_sanitized, embeddings_np_sanitized
-
     except Exception as e:
         st.error(f"Error creating vector store: {e}")
-        traceback.print_exc() # Print full traceback for debugging this critical step
+        traceback.print_exc()
         return None, None, None
 
-# Context Retrieval Function (using potentially sanitized chunks/index)
-# Keep the previous NaN/Inf checks for the *query* embedding as a defense layer
 def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: list[str], k: int = TOP_K_RESULTS) -> str:
     """Retrieves the top-k relevant text chunks from the vector store with added validation."""
-    # text_chunks here should be the SANITIZED list associated with the index
     if index is None or embedding_model is None or text_chunks is None:
          st.warning("Vector store components not available for retrieval.")
          return "Error: Could not retrieve context - Vector store not initialized."
     try:
         print(f"[RT] Embedding query: '{query[:50]}...'")
         query_embedding_list = embedding_model.encode([query])
-
-        # --- Start: Query Embedding Validation Checks ---
         if query_embedding_list is None or query_embedding_list.shape[0] == 0:
              st.error("Failed to generate query embedding (returned None or empty).")
              return "Error: Failed to generate query embedding."
@@ -190,31 +197,18 @@ def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: l
             st.error("Query embedding contains Inf values. Cannot perform search.")
             print(f"[ERROR] Query embedding contains Inf: {query_embedding_np}")
             return "Error: Invalid query embedding generated (Inf)."
-        # --- End: Query Embedding Validation Checks ---
-
         print(f"[RT] Searching FAISS index (size {index.ntotal}) for top {k} relevant chunks...")
         distances, indices = index.search(query_embedding_np, k)
-
-        # --- Start: Results Validation ---
         if indices is None or len(indices) == 0 or len(indices[0]) == 0:
              print("[RT] No relevant indices found by FAISS search.")
              return "No specific policy context found for this query."
-
-        # Indices returned by FAISS refer to the positions *within the index*.
-        # We need to map these back to the *sanitized* text_chunks list.
-        valid_indices_in_index = [idx for idx in indices[0] if 0 <= idx < index.ntotal] # FAISS indices are 0-based
-
+        valid_indices_in_index = [idx for idx in indices[0] if 0 <= idx < index.ntotal]
         if not valid_indices_in_index:
             print("[RT] No valid indices returned by FAISS search.")
             return "No specific policy context found matching the query criteria."
-        # --- End: Results Validation ---
-
-        # Retrieve the corresponding text chunks from the SANITIZED list
         retrieved_chunks = [text_chunks[i] for i in valid_indices_in_index]
-
         print(f"[RT] Retrieved {len(retrieved_chunks)} chunks.")
         return "\n\n---\n\n".join(retrieved_chunks)
-
     except Exception as e:
         print("--- ERROR DURING CONTEXT RETRIEVAL ---")
         traceback.print_exc()
@@ -227,8 +221,6 @@ def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: l
              st.error(f"Error during context retrieval: {e}")
         return f"Error: Failed to retrieve context from policy. {error_message_detail}"
 
-
-# Gemini Response Generation (remains largely the same, uses genai.Part)
 def generate_safeguarding_response(
     chat, # Removed ChatSession type hint
     query: str,
@@ -236,10 +228,14 @@ def generate_safeguarding_response(
     user_role: str = "School Staff Member"
     ):
     """Generates a response using Gemini, handles function calls."""
-    # (Prompt content remains the same as previous version)
+    # Add location context from user prompt
+    location = "Nottingham, England, United Kingdom" # From user context
+    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") # System time
+    context_time_str = "2025-04-12 17:04:12 BST" # From user context
+
     prompt_content = f"""
     *Instructions for AI:*
-    You are an AI Safeguarding Support Agent for school staff in Nottingham, UK. Your response time should reflect the current time ({datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}).
+    You are an AI Safeguarding Support Agent for school staff in Nottingham, UK. Your response time should reflect the current system time ({current_time_str}). The user context time is {context_time_str}.
     Your purpose is to provide clear, actionable guidance based *strictly* on the provided safeguarding policy context.
     Prioritize child safety. Do not provide advice outside of the given policy context.
     If the policy context is missing or insufficient for the *latest query*, state that clearly.
@@ -247,7 +243,7 @@ def generate_safeguarding_response(
     However, base your specific safeguarding advice, procedures, and reporting requirements *strictly* on the **Newly Retrieved Policy Context** provided below, as this is most relevant to the **Latest User Query**.
 
     *User Role:* {user_role}
-    *Current Location:* Nottingham, England, United Kingdom
+    *Current Location:* {location}
 
     *Newly Retrieved Policy Context (Relevant to Latest Query):*
     --- START OF CONTEXT ---
@@ -269,16 +265,9 @@ def generate_safeguarding_response(
     *Your Response to the Latest User Query:*
     """
     print("[RT] Sending request to Gemini model...")
-    function_simulation_output = None # Initialize
-
+    function_simulation_output = None
     try:
-        response = chat.send_message(
-            prompt_content,
-            tools=[dsl_escalation_tool]
-            )
-
-        # --- Function Call Handling Logic ---
-        # (This part remains the same as the previous corrected version, using genai.Part)
+        response = chat.send_message(prompt_content, tools=[dsl_escalation_tool])
         response_part = response.candidates[0].content.parts[0] if response.candidates else None
         if response_part and hasattr(response_part, 'function_call') and response_part.function_call:
             function_call = response_part.function_call
@@ -310,20 +299,16 @@ def generate_safeguarding_response(
             else:
                  print(f"[WARN] Gemini requested unknown function: {function_call.name}")
                  st.warning(f"Model requested an unsupported action '{function_call.name}'.")
-
-        # Extract final text response
         final_response_text = ""
         if response.candidates and response.candidates[0].content.parts:
             final_response_text = "".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
         elif not function_simulation_output:
              final_response_text = "[AI did not provide a textual response for this turn]"
-
         return final_response_text, function_simulation_output
-
     except Exception as e:
         error_msg = f"An error occurred during Gemini API call: {e}"
         print(f"[ERROR] {error_msg}")
-        traceback.print_exc() # Print traceback for Gemini errors too
+        traceback.print_exc()
         partial_text = "[ERROR]"
         try:
              if response and response.candidates and len(response.candidates) > 0 and response.candidates[0].content and response.candidates[0].content.parts:
