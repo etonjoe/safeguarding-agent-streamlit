@@ -89,8 +89,9 @@ if "faiss_index" not in st.session_state:
      st.session_state.faiss_index = None
 
 
+# app.py - Modified Initialization Section
+
 # Button to initialize or re-initialize the system
-# Placed in sidebar or main area depending on preference
 if st.sidebar.button("Load/Reload Policy & Initialize AI", key="init_button", disabled=not configured):
     if not configured:
         st.error("Please configure the Google API Key before initializing.")
@@ -99,34 +100,52 @@ if st.sidebar.button("Load/Reload Policy & Initialize AI", key="init_button", di
             st.session_state.messages = [] # Clear history on re-init
             st.session_state.chat_session = None # Reset chat session
             st.session_state.faiss_index = None # Reset index
+            st.session_state.vector_store_data = {"chunks": None, "embeddings": None} # Reset stored data
+            st.session_state.initialized = False # Mark as uninitialized until success
 
-            # Load PDF, generate embeddings (uses @st.cache_data)
-            chunks, embeddings = load_and_process_pdf(PDF_PATH)
+            # 1. Load and Split PDF (No caching here now)
+            policy_chunks = load_and_split_pdf(PDF_PATH)
 
-            if chunks and embeddings is not None:
-                st.session_state.vector_store_data["chunks"] = chunks
-                st.session_state.vector_store_data["embeddings"] = embeddings
+            if policy_chunks is not None: # Check if PDF processing was successful
+                # 2. Create Vector Store (Generates & Sanitizes Embeddings, Builds Index)
+                # This function now returns index, sanitized_chunks, sanitized_embeddings
+                index, sanitized_chunks, sanitized_embeddings = create_vector_store(policy_chunks)
 
-                # Build FAISS index (using cached embeddings)
-                st.session_state.faiss_index = get_faiss_index(embeddings)
+                if index is not None and sanitized_chunks is not None:
+                    # Store the sanitized data and the index in session state
+                    st.session_state.faiss_index = index
+                    st.session_state.vector_store_data["chunks"] = sanitized_chunks
+                    # Store embeddings if needed later, though index+chunks are primary for retrieval
+                    st.session_state.vector_store_data["embeddings"] = sanitized_embeddings
 
-                if st.session_state.faiss_index is not None:
-                    # Initialize Gemini Model and Chat
+                    # 3. Initialize Gemini Model and Chat
                     try:
                         model = genai.GenerativeModel(GEMINI_MODEL_NAME, safety_settings=SAFETY_SETTINGS)
                         st.session_state.chat_session = model.start_chat(history=[]) # Start fresh chat
-                        st.session_state.initialized = True
+                        st.session_state.initialized = True # Mark as initialized *only* on full success
                         st.sidebar.success("System Initialized Successfully!")
                         st.rerun() # Rerun to update UI state
                     except Exception as e:
                         st.error(f"Failed to initialize Gemini Model/Chat: {e}")
-                        st.session_state.initialized = False
+                        # Keep initialized as False
                 else:
-                     st.error("Failed to build FAISS index after processing PDF.")
-                     st.session_state.initialized = False
+                     st.error("Failed to create vector store after processing PDF.")
+                     # Keep initialized as False
             else:
-                st.error("Failed to process PDF or generate embeddings.")
-                st.session_state.initialized = False
+                st.error("Failed to process PDF document.")
+                # Keep initialized as False
+
+# (The rest of app.py remains the same - including the chat interface part
+# which calls retrieve_relevant_context using the data now stored in session_state)
+
+# Example of how retrieve_relevant_context would be called in the chat input handler:
+# Make sure it uses the data from session_state correctly:
+# context = retrieve_relevant_context(
+#     prompt,
+#     st.session_state.faiss_index,
+#     load_embedding_model(), # Get cached model
+#     st.session_state.vector_store_data["chunks"] # Use SANITIZED chunks
+# )
 
 # Display initialization status
 if not configured:
