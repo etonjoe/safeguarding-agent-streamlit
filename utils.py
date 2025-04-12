@@ -168,10 +168,13 @@ def get_faiss_index(embeddings):
           st.error(f"Error building FAISS index from embeddings: {e}")
           return None
 
-# utils.py - UPDATED retrieve_relevant_context function
+# utils.py - FURTHER UPDATED retrieve_relevant_context function
+
+import numpy as np # Ensure numpy is imported
+import traceback # Ensure traceback is imported
 
 def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: list[str], k: int = TOP_K_RESULTS) -> str:
-    """Retrieves the top-k relevant text chunks from the vector store."""
+    """Retrieves the top-k relevant text chunks from the vector store with added validation."""
     if index is None or embedding_model is None or text_chunks is None:
          st.warning("Vector store components not available for retrieval.")
          return "Error: Could not retrieve context - Vector store not initialized."
@@ -180,33 +183,46 @@ def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: l
         # Generate embedding
         query_embedding_list = embedding_model.encode([query])
 
-        # --- Start: Added Checks ---
+        # --- Start: Embedding Validation Checks ---
         if query_embedding_list is None or query_embedding_list.shape[0] == 0:
              st.error("Failed to generate query embedding (returned None or empty).")
              return "Error: Failed to generate query embedding."
 
         query_embedding_np = np.array(query_embedding_list).astype('float32')
 
-        # Ensure it's 2D (sentence-transformers usually returns 2D, but defensive check)
+        # Check shape (should be 2D, e.g., (1, embedding_dimension))
         if query_embedding_np.ndim != 2 or query_embedding_np.shape[0] != 1:
              st.error(f"Query embedding has unexpected shape: {query_embedding_np.shape}")
              return "Error: Query embedding shape issue."
-        # --- End: Added Checks ---
+
+        # VVV --- NEW: Check for NaN or Inf values --- VVV
+        if np.isnan(query_embedding_np).any():
+            st.error("Query embedding contains NaN values. Cannot perform search.")
+            print(f"[ERROR] Query embedding contains NaN: {query_embedding_np}")
+            return "Error: Invalid query embedding generated (NaN)."
+        if np.isinf(query_embedding_np).any():
+            st.error("Query embedding contains Inf values. Cannot perform search.")
+            print(f"[ERROR] Query embedding contains Inf: {query_embedding_np}")
+            return "Error: Invalid query embedding generated (Inf)."
+        # ^^^ --- NEW: Check for NaN or Inf values --- ^^^
+
+        # --- End: Embedding Validation Checks ---
 
         print(f"[RT] Searching FAISS index for top {k} relevant chunks...")
-        # Use the validated NumPy array for search
         distances, indices = index.search(query_embedding_np, k)
 
-        # Filter out potential invalid indices (if k > number of documents)
-        # Ensure indices is not empty and contains at least one array of indices
+        # --- Start: Results Validation ---
         if indices is None or len(indices) == 0 or len(indices[0]) == 0:
              print("[RT] No relevant indices found.")
-             return "No specific policy context found for this query." # Return clearer message
+             return "No specific policy context found for this query."
 
         valid_indices = [i for i in indices[0] if 0 <= i < len(text_chunks)]
         if not valid_indices:
             print("[RT] No valid indices found after filtering.")
-            return "No specific policy context found matching the query criteria." # Return clearer message
+            # Check distances for potential issues if debugging needed
+            # print(f"[DEBUG] Distances: {distances}")
+            return "No specific policy context found matching the query criteria."
+        # --- End: Results Validation ---
 
         retrieved_chunks = [text_chunks[i] for i in valid_indices]
 
@@ -215,12 +231,17 @@ def retrieve_relevant_context(query: str, index, embedding_model, text_chunks: l
 
     except Exception as e:
         # Print the full traceback to the console/log for better debugging
-        import traceback
         print("--- ERROR DURING CONTEXT RETRIEVAL ---")
         traceback.print_exc()
         print("--- END ERROR TRACEBACK ---")
-        st.error(f"Error during context retrieval: {e}") # Show concise error in UI
-        return f"Error: Failed to retrieve context from policy. Details: {e}" # Include error detail
+        # Check if the specific error is the ambiguous boolean one
+        if "The truth value of an array" in str(e):
+             st.error(f"Persistent error during FAISS search: {e}. This might indicate an issue with the index or specific query interaction.")
+             # You could potentially try rebuilding the index here if desired, but it's complex
+        else:
+             st.error(f"Error during context retrieval: {e}")
+
+        return f"Error: Failed to retrieve context from policy. Details: {e}"
 
 
 def generate_safeguarding_response(
